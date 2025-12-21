@@ -1,345 +1,123 @@
-"""
-🏠 Buenos Aires Housing EDA - Complete Assignment 025 Solution
-Upload to GitHub as 'app.py' and connect to Streamlit Cloud
-"""
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
 import matplotlib.pyplot as plt
-import seaborn as sns
-import io
 import warnings
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_absolute_error
-from category_encoders import OneHotEncoder
-from sklearn.pipeline import make_pipeline
 
-# Page config for perfect GitHub deployment
-st.set_page_config(
-    page_title="Buenos Aires Housing EDA",
-    page_icon="🏠",
-    layout="wide",
-    initial_sidebar_state="expanded"
+warnings.filterwarnings("ignore")
+st.set_page_config(page_title="Housing EDA (Multiple Files)", layout="wide")
+
+st.title("🏠 Housing EDA (Multiple Files Supported)")
+st.write("Upload one or more CSV files. The app will combine them and run the same data science steps.")
+
+# -------- 1. MULTI FILE UPLOAD --------
+uploaded_files = st.file_uploader(
+    "Upload one or more housing CSV files",
+    type=["csv"],
+    accept_multiple_files=True
 )
 
-# Custom CSS for professional look
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 3rem;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 10px;
-        text-align: center;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-warnings.filterwarnings('ignore')
-
 @st.cache_data
-def load_data(file):
-    """Load and cache CSV data"""
-    return pd.read_csv(file)
+def wrangle_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean a DataFrame that is already loaded (no read_csv here)."""
 
-@st.cache_data
-def wrangle(filepath):
-    """
-    Assignment 2.5.1 - Complete data wrangling function
-    Exactly matches assignment requirements
-    """
-    df = pd.read_csv(filepath)
-    
-    # Filter: Capital Federal apartments < $400k
-    mask_ba = df['place_with_parent_names'].str.contains('Capital Federal', na=False)
-    mask_apt = df['property_type'] == 'apartment'
-    mask_price = df['price_aprox_usd'] < 400000
-    df = df[mask_ba & mask_apt & mask_price]
-    
-    # Remove surface outliers (10th-90th percentiles)
-    low, high = df['surface_covered_in_m2'].quantile([0.1, 0.9])
-    mask_area = df['surface_covered_in_m2'].between(low, high)
-    df = df[mask_area]
-    
-    # Split lat-lon column
-    df[['lat', 'lon']] = df['lat-lon'].str.split(',', expand=True).astype(float)
-    df = df.drop(columns=['lat-lon'])
-    
-    # Extract neighborhood (3rd level from place_with_parent_names)
-    df['neighborhood'] = df['place_with_parent_names'].str.split('/').str[-3]
-    df = df.drop(columns=['place_with_parent_names'])
-    
-    # Rename price column
-    df = df.rename(columns={'price_aprox_usd': 'price'})
-    
+    # 1) price filter and rename
+    if "price_aprox_usd" in df.columns:
+        df = df[df["price_aprox_usd"].notna()]
+        df = df[df["price_aprox_usd"] < 400000]
+        df = df.rename(columns={"price_aprox_usd": "price"})
+    elif "price" in df.columns:
+        df = df[df["price"].notna()]
+        df = df[df["price"] < 400000]
+
+    # 2) only apartments if column exists
+    if "property_type" in df.columns:
+        df = df[df["property_type"] == "apartment"]
+
+    # 3) remove area outliers
+    if "surface_covered_in_m2" in df.columns:
+        q10, q90 = df["surface_covered_in_m2"].quantile([0.10, 0.90])
+        df = df[df["surface_covered_in_m2"].between(q10, q90)]
+
+    # 4) split lat-lon
+    if "lat-lon" in df.columns:
+        lat_lon_split = df["lat-lon"].str.split(",", expand=True)
+        if lat_lon_split.shape[1] >= 2:
+            df["lat"] = pd.to_numeric(lat_lon_split[0], errors="coerce")
+            df["lon"] = pd.to_numeric(lat_lon_split[1], errors="coerce")
+        df = df.drop(columns=["lat-lon"])
+
+    # 5) neighborhood from place_with_parent_names
+    if "place_with_parent_names" in df.columns:
+        df["neighborhood"] = df["place_with_parent_names"].str.split("/").str[-3]
+        df = df.drop(columns=["place_with_parent_names"])
+
     return df
 
-def create_price_histogram(df):
-    """Assignment 2.5.4 - OOP Matplotlib histogram"""
-    fig, ax = plt.subplots(figsize=(12, 6))
-    ax.hist(df['price'], bins=50, edgecolor='black', alpha=0.7)
-    ax.set_xlabel('Price (USD)')
-    ax.set_ylabel('Count')
-    ax.set_title('Distribution of Apartment Prices - Buenos Aires', fontsize=16, fontweight='bold')
+
+def plot_price_histogram(df: pd.DataFrame):
+    if "price" not in df.columns:
+        st.info("No 'price' column found.")
+        return
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.hist(df["price"], bins=40, edgecolor="black", alpha=0.7)
+    ax.set_xlabel("Price (USD)")
+    ax.set_ylabel("Count")
+    ax.set_title("Distribution of Apartment Prices")
     ax.grid(True, alpha=0.3)
-    plt.tight_layout()
-    return fig
+    st.pyplot(fig)
 
-def build_model(df):
-    """Complete ML pipeline matching assignment requirements"""
-    X = df.drop(columns=['price'])
-    y = df['price']
-    
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    # Exact assignment pipeline
-    model = make_pipeline(
-        OneHotEncoder(use_cat_names=True),
-        Ridge(alpha=1.0)
-    )
-    
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_val)
-    
-    mae = mean_absolute_error(y_val, y_pred)
-    
-    return model, mae, X_train, X_val, y_train, y_val
 
-# Main App
-st.markdown('<h1 class="main-header">🏠 Buenos Aires Housing EDA</h1>', unsafe_allow_html=True)
-st.markdown("***Complete Assignment 025 Solution - Ready for WQ University submission***")
+# -------- 2. MAIN APP LOGIC --------
+if uploaded_files:
+    dfs = []
+    for f in uploaded_files:
+        try:
+            df_temp = pd.read_csv(f)  # only place we use read_csv
+            df_temp["__source_file"] = f.name
+            dfs.append(df_temp)
+        except pd.errors.EmptyDataError:
+            st.error(f"File '{f.name}' is empty or invalid, skipping.")
+        except Exception as e:
+            st.error(f"Error reading '{f.name}': {e}")
 
-# File uploader
-uploaded_file = st.file_uploader(
-    "📁 Upload **buenos-aires-real-estate-1.csv**", 
-    type=["csv"],
-    help="Drag & drop or click to upload your dataset"
-)
+    if not dfs:
+        st.error("No valid CSV files loaded.")
+    else:
+        df_raw = pd.concat(dfs, ignore_index=True)
+        df_clean = wrangle_dataframe(df_raw)
 
-if uploaded_file is not None:
-    with st.spinner("🔄 Loading and analyzing data..."):
-        df_raw = load_data(uploaded_file)
-        df = wrangle(uploaded_file)
-    
-    # Key Metrics Row
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
-    with col1:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("🏠 Total Properties", f"{len(df):,}")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("💰 Avg Price", f"${df['price'].mean():,.0f}")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("📏 Avg Area", f"{df['surface_covered_in_m2'].mean():.0f} m²")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("📍 Neighborhoods", f"{df['neighborhood'].nunique()}")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with col5:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("✅ Clean Rows", f"{len(df):,}")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Main Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📋 Data Preview", "🔧 Wrangling", "📊 Visualizations", 
-        "🗺️ Interactive Map", "🤖 ML Pipeline"
-    ])
-    
-    with tab1:
-        st.subheader("Raw vs Wrangled Data")
-        col_a, col_b = st.columns(2)
-        
-        with col_a:
-            st.metric("Raw Data", f"{len(df_raw):,}")
-            st.dataframe(df_raw.head(), height=300)
-        
-        with col_b:
-            st.success("✅ Wrangled Data")
-            st.metric("Clean Data", f"{len(df):,}")
-            st.dataframe(df.head(), height=300)
-        
-        st.subheader("Dataset Info")
-        buffer = io.StringIO()
-        df.info(buf=buffer)
-        st.code(buffer.getvalue())
-    
-    with tab2:
-        st.success("✅ **Task 2.5.1 Complete** - `wrangle()` function")
-        st.code("""
-def wrangle(filepath):
-    # Filters: Capital Federal apartments < $400k
-    # Outlier removal: surface 10th-90th percentiles  
-    # Splits: lat-lon → lat, lon
-    # Extracts: neighborhood from place_with_parent_names
-    # Renames: price_aprox_usd → price
-""")
-        
-        st.subheader("Data Quality Check")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Missing Values", df.isnull().sum().sum())
-        with col2:
-            st.metric("Valid Lat/Lon", df[['lat', 'lon']].notna().all(axis=1).sum())
-    
-    with tab3:
-        st.subheader("📈 **Task 2.5.4 Complete** - Price Distribution")
-        fig_hist = create_price_histogram(df)
-        st.pyplot(fig_hist)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            fig_scatter = px.scatter(
-                df, x='surface_covered_in_m2', y='price',
-                trendline="ols",
-                title="Price vs Surface Area",
-                labels={'surface_covered_in_m2': 'Area (m²)', 'price': 'Price (USD)'}
-            )
-            st.plotly_chart(fig_scatter, use_container_width=True)
-        
-        with col2:
-            fig_neigh = px.box(
-                df, x='neighborhood', y='price',
-                title="Price by Neighborhood (Top 10)",
-                category_orders={'neighborhood': df['neighborhood'].value_counts().head(10).index}
-            )
-            fig_neigh.update_layout(height=400)
-            st.plotly_chart(fig_neigh, use_container_width=True)
-    
-    with tab4:
-        st.subheader("🗺️ **Task 2.5.6 Complete** - Interactive Map")
-        df_map = df.dropna(subset=['lat', 'lon', 'price'])
-        
-        fig_map = px.scatter_mapbox(
-            df_map.head(2000),  # Limit for performance
-            lat='lat', lon='lon',
-            color='price',
-            size='surface_covered_in_m2',
-            hover_name='neighborhood',
-            color_continuous_scale='viridis',
-            size_max=15,
-            mapbox_style="open-street-map",
-            title="🏠 Buenos Aires Apartments - Price Heatmap",
-            zoom=11,
-            height=600
-        )
-        st.plotly_chart(fig_map, use_container_width=True)
-        
-        # Key insights
-        st.markdown("""
-        ### 📍 **Key Location Insights**
-        - **🔴 Red/Hot areas**: Palermo, Recoleta, Puerto Madero (Premium)
-        - **🟢 Green/Cool areas**: Villa Lugano, Mataderos (Budget)  
-        - **Size**: Larger bubbles = bigger apartments
-        """)
-    
-    with tab5:
-        st.subheader("🤖 **Complete ML Pipeline**")
-        
-        if st.button("🚀 Train Model & Get Results", type="primary"):
-            with st.spinner("Training Ridge Regression pipeline..."):
-                model, mae, X_train, X_val, y_train, y_val = build_model(df)
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Training Set", f"{len(X_train):,}")
-                with col2:
-                    st.metric("Validation Set", f"{len(X_val):,}")
-                with col3:
-                    st.error(f"MAE: ${mae:,.0f}")
-                
-                # Feature importance
-                st.subheader("Feature Importance")
-                encoder = model.named_steps['onehotencoder']
-                ridge = model.named_steps['ridge']
-                
-                feature_names = encoder.transform(X_train).columns
-                importances = np.abs(ridge.coef_)
-                
-                imp_df = pd.DataFrame({
-                    'feature': feature_names,
-                    'importance': importances
-                }).sort_values('importance', ascending=False).head(15)
-                
-                fig_bar = px.bar(imp_df, x='importance', y='feature',
-                               title="Top 15 Most Important Features",
-                               orientation='h')
-                st.plotly_chart(fig_bar, use_container_width=True)
-    
-    # Sidebar downloads & controls
-    with st.sidebar:
-        st.header("💾 Downloads")
-        
-        # Raw data download
-        csv_raw = df_raw.to_csv(index=False)
+        st.success(f"Loaded {len(df_raw):,} rows → {len(df_clean):,} clean rows")
+
+        st.subheader("Clean data preview")
+        st.dataframe(df_clean.head())
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Total properties", f"{len(df_clean):,}")
+        with c2:
+            if "price" in df_clean.columns:
+                st.metric("Average price", f"${df_clean['price'].mean():,.0f}")
+        with c3:
+            if "surface_covered_in_m2" in df_clean.columns:
+                st.metric("Average area (m²)", f"{df_clean['surface_covered_in_m2'].mean():.0f}")
+
+        st.subheader("Price distribution")
+        plot_price_histogram(df_clean)
+
+        st.subheader("Numeric summary")
+        st.dataframe(df_clean.describe())
+
+        if "neighborhood" in df_clean.columns:
+            st.subheader("Top neighborhoods by count")
+            st.dataframe(df_clean["neighborhood"].value_counts().head(10))
+
+        csv_clean = df_clean.to_csv(index=False)
         st.download_button(
-            "📥 Raw Data",
-            csv_raw,
-            "buenos_aires_raw.csv",
-            "text/csv"
-        )
-        
-        # Wrangled data download  
-        csv_clean = df.to_csv(index=False)
-        st.download_button(
-            "✅ Wrangled Data (Assignment Ready)",
+            "💾 Download combined & cleaned CSV",
             csv_clean,
-            "buenos_aires_wrangled.csv", 
-            "text/csv"
+            "housing_cleaned_all_files.csv",
+            mime="text/csv"
         )
-        
-        st.markdown("---")
-        st.info("""
-        **✅ Deployment Ready**
-        1. Save as `app.py`
-        2. Upload to GitHub repo
-        3. Connect to Streamlit Cloud
-        4. Submit to WQ University!
-        """)
-
 else:
-    st.info("👆 **Upload `buenos-aires-real-estate-1.csv`** to get started!")
-    
-    st.markdown("""
-    ## 🎯 **Assignment 025 - All Tasks Complete**
-    
-    ✅ **2.5.1** `wrangle()` function  
-    ✅ **2.5.4** OOP Matplotlib histogram  
-    ✅ **2.5.6** Mapbox scatter plot  
-    ✅ **Full ML Pipeline** with Ridge regression
-    
-    **Expected Columns:**
-    ```
-    price_aprox_usd → price
-    surface_covered_in_m2  
-    lat-lon → lat, lon
-    place_with_parent_names → neighborhood  
-    property_type
-    ```
-    """)
-
-# Footer
-st.markdown("---")
-st.markdown(
-    "<p style='text-align: center; color: #778899;'>"
-    "Built for WQ University Data Science Lab | Project 7 | Ready for GitHub 🚀</p>", 
-    unsafe_allow_html=True
-)
+    st.info("👆 Upload one or more CSV files to start.")
