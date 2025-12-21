@@ -1,53 +1,40 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
+import warnings
 
-# Page Config
-st.set_page_config(page_title="Project Data Explorer", layout="wide")
+st.set_page_config(page_title="Housing EDA", layout="wide")
+warnings.filterwarnings('ignore')
 
-st.title("🚀 Project Data Analysis App")
-st.markdown("Directly converted from your Jupyter Notebook project.")
+@st.cache_data
+def wrangle(file):
+    df = pd.read_csv(file)
+    if 'price_aprox_usd' in df.columns:
+        df = df[df['price_aprox_usd'] < 400000]
+    if 'property_type' in df.columns:
+        df = df[df['property_type'] == 'apartment']
+    if 'surface_covered_in_m2' in df.columns:
+        low, high = df['surface_covered_in_m2'].quantile([0.1, 0.9])
+        df = df[df['surface_covered_in_m2'].between(low, high)]
+    if 'price_aprox_usd' in df.columns:
+        df = df.rename(columns={'price_aprox_usd': 'price'})
+    return df
 
-# 1. Data Loading Section
-st.sidebar.header("Upload Data")
-uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type="csv")
+st.title("🏠 Buenos Aires Housing EDA")
+
+uploaded_file = st.file_uploader("Upload CSV", type="csv")
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+    df = wrangle(uploaded_file)
+    st.success(f"✅ {len(df):,} clean records loaded!")
     
-    # 2. Data Preview
-    st.subheader("1. Dataset Preview")
-    st.dataframe(df.head())
-    
-    # 3. Quick Stats
     col1, col2 = st.columns(2)
     with col1:
-        st.write("**Descriptive Statistics:**")
-        st.write(df.describe())
+        st.metric("🏠 Properties", len(df))
     with col2:
-        st.write("**Missing Values:**")
-        st.write(df.isnull().sum())
-
-    # 4. Visualizations Section
-    st.subheader("2. Visualizations")
-    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        st.metric("💰 Avg Price", f"${df['price'].mean():,.0f}")
     
-    if numeric_cols:
-        target_col = st.selectbox("Select column for Histogram:", numeric_cols)
-        
-        fig, ax = plt.subplots()
-        sns.histplot(df[target_col], kde=True, ax=ax, color='skyblue')
-        ax.set_title(f"Distribution of {target_col}")
-        st.pyplot(fig)
-        
-        # Heatmap
-        if len(numeric_cols) > 1:
-            st.write("**Correlation Heatmap:**")
-            fig_corr, ax_corr = plt.subplots(figsize=(10, 6))
-            sns.heatmap(df[numeric_cols].corr(), annot=True, cmap="YlGnBu", ax=ax_corr)
-            st.pyplot(fig_corr)
-    else:
-        st.error("No numeric columns found for plotting.")
+    st.dataframe(df.head())
+    st.download_button("💾 Download Clean", df.to_csv(), "clean.csv")
 else:
-    st.info("Waiting for CSV file upload...")
+    st.info("👆 Upload CSV to start!")
