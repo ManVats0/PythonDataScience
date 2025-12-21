@@ -87,7 +87,8 @@ if uploaded_files:
         df_raw = pd.concat(dfs, ignore_index=True)
         df_clean = wrangle_dataframe(df_raw)
 
-        st.success(f"Loaded {len(df_raw):,} rows → {len(df_clean):,} clean rows")
+        # NEW: make all column names unique to avoid ValueError
+        df_clean = df_clean.loc[:, ~df_clean.columns.duplicated()].copy()
 
         st.subheader("Clean data preview")
         st.dataframe(df_clean.head())
@@ -121,3 +122,4 @@ if uploaded_files:
         )
 else:
     st.info("👆 Upload one or more CSV files to start.")
+
