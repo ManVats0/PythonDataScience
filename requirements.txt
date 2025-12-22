@@ -6,3 +6,6 @@ matplotlib
 seaborn
 scikit-learn
 category-encoders
+seaborn==0.13.2
+matplotlib==3.9.2
+sqlite3
