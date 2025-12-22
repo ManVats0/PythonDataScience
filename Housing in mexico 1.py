@@ -49,7 +49,13 @@ def wrangle_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     # 5) neighborhood from place_with_parent_names
     if "place_with_parent_names" in df.columns:
-        df["neighborhood"] = df["place_with_parent_names"].str.split("/").str[-3]
+        def last_non_empty(s):
+            if not isinstance(s, str):
+                return np.nan
+            parts = [p.strip() for p in s.split("|") if p.strip() != ""]
+            return parts[-1] if parts else np.nan
+
+        df["neighborhood"] = df["place_with_parent_names"].apply(last_non_empty)
         df = df.drop(columns=["place_with_parent_names"])
 
     return df
@@ -122,4 +128,5 @@ if uploaded_files:
         )
 else:
     st.info("👆 Upload one or more CSV files to start.")
+
 
