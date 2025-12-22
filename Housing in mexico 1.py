@@ -1,21 +1,29 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 import warnings
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import streamlit as st
+
+from category_encoders import OneHotEncoder
+from sklearn.linear_model import Ridge
+from sklearn.pipeline import make_pipeline
 
 warnings.filterwarnings("ignore")
 st.set_page_config(page_title="Housing EDA (Multiple Files)", layout="wide")
 
 st.title("🏠 Housing EDA (Multiple Files Supported)")
-st.write("Upload one or more CSV files. The app will combine them and run the same data science steps.")
+st.write("Upload one or more CSV files. The app will combine them, clean them, "
+         "run EDA, and train a simple price model.")
+
 
 # -------- 1. MULTI FILE UPLOAD --------
 uploaded_files = st.file_uploader(
     "Upload one or more housing CSV files",
     type=["csv"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
 )
+
 
 @st.cache_data
 def wrangle_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -90,15 +98,17 @@ if uploaded_files:
     if not dfs:
         st.error("No valid CSV files loaded.")
     else:
+        # Combine and clean
         df_raw = pd.concat(dfs, ignore_index=True)
         df_clean = wrangle_dataframe(df_raw)
 
-        # NEW: make all column names unique to avoid ValueError
+        # Ensure unique column names
         df_clean = df_clean.loc[:, ~df_clean.columns.duplicated()].copy()
 
         st.subheader("Clean data preview")
         st.dataframe(df_clean.head())
 
+        # ---- Metrics ----
         c1, c2, c3 = st.columns(3)
         with c1:
             st.metric("Total properties", f"{len(df_clean):,}")
@@ -107,8 +117,12 @@ if uploaded_files:
                 st.metric("Average price", f"${df_clean['price'].mean():,.0f}")
         with c3:
             if "surface_covered_in_m2" in df_clean.columns:
-                st.metric("Average area (m²)", f"{df_clean['surface_covered_in_m2'].mean():.0f}")
+                st.metric(
+                    "Average area (m²)",
+                    f"{df_clean['surface_covered_in_m2'].mean():.0f}",
+                )
 
+        # ---- EDA plots ----
         st.subheader("Price distribution")
         plot_price_histogram(df_clean)
 
@@ -119,14 +133,69 @@ if uploaded_files:
             st.subheader("Top neighborhoods by count")
             st.dataframe(df_clean["neighborhood"].value_counts().head(10))
 
+        # -------- 3. SIMPLE PRICE MODEL --------
+        if "price" in df_clean.columns:
+            st.subheader("Train simple price model")
+
+            # Choose features: adjust list as you like
+            feature_cols = []
+            for col in ["surface_covered_in_m2", "lat", "lon", "neighborhood"]:
+                if col in df_clean.columns:
+                    feature_cols.append(col)
+
+            if feature_cols:
+                X = df_clean[feature_cols].copy()
+                y = df_clean["price"].copy()
+
+                # Drop rows with missing values in features or target
+                data = pd.concat([X, y], axis=1).dropna()
+                X = data[feature_cols]
+                y = data["price"]
+
+                model = make_pipeline(
+                    OneHotEncoder(use_cat_names=True),
+                    Ridge()
+                )
+                model.fit(X, y)
+
+                st.write(f"Model trained on {len(X):,} rows using features: {feature_cols}")
+
+                # Simple prediction widget
+                st.markdown("### Try a prediction")
+
+                with st.form("prediction_form"):
+                    inputs = {}
+                    if "surface_covered_in_m2" in feature_cols:
+                        inputs["surface_covered_in_m2"] = st.number_input(
+                            "Area (m²)", min_value=10.0, max_value=500.0, value=60.0
+                        )
+                    if "lat" in feature_cols:
+                        inputs["lat"] = st.number_input("Latitude", value=float(X["lat"].median()))
+                    if "lon" in feature_cols:
+                        inputs["lon"] = st.number_input("Longitude", value=float(X["lon"].median()))
+                    if "neighborhood" in feature_cols:
+                        inputs["neighborhood"] = st.selectbox(
+                            "Neighborhood",
+                            sorted(df_clean["neighborhood"].dropna().unique()),
+                        )
+
+                    submitted = st.form_submit_button("Predict price")
+                    if submitted:
+                        X_new = pd.DataFrame([inputs])
+                        y_pred = model.predict(X_new)[0]
+                        st.success(f"Predicted price: ${y_pred:,.0f}")
+            else:
+                st.info("Not enough feature columns to train a model.")
+        else:
+            st.info("Cannot train a model because 'price' column is missing.")
+
+        # ---- Download cleaned data ----
         csv_clean = df_clean.to_csv(index=False)
         st.download_button(
             "💾 Download combined & cleaned CSV",
             csv_clean,
             "housing_cleaned_all_files.csv",
-            mime="text/csv"
+            mime="text/csv",
         )
 else:
     st.info("👆 Upload one or more CSV files to start.")
-
-
