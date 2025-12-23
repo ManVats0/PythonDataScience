@@ -37,9 +37,9 @@ data_source = st.sidebar.radio(
     ["Load from Kaggle CSV (Recommended)", "Load from SQLite (if available)", "Use sample data"],
 )
 
-# --------------------------
+# -------------------------------------------------------------------
 # 1. LOAD DATA
-# --------------------------
+# -------------------------------------------------------------------
 df = None
 
 if data_source == "Load from Kaggle CSV (Recommended)":
@@ -54,28 +54,28 @@ if data_source == "Load from Kaggle CSV (Recommended)":
         df_labels = pd.read_csv(uploaded_labels)
 
         # Merge on building_id
-        df = df_features.merge(df_labels, on="building_id")
-
-        # Create severe_damage exactly like the WQU wrangle() function:
-        # Grade 4 or 5 -> 1, otherwise 0
-        # damage_grade in Kaggle data is 1,2,3 only, but keep logic general
-        # if you later map from original grades.
-        if "damage_grade" in df.columns:
-            df["severe_damage"] = (df["damage_grade"] > 3).astype(int)
-        elif "severe_damage" not in df.columns:
-            # fallback: if labels already binary, rename
-            # (user can adapt depending on their CSV structure)
-            st.error(
-                "Label file must contain a damage_grade column. "
-                "Check that you uploaded the correct train_labels.csv."
-            )
+        if "building_id" not in df_features.columns or "building_id" not in df_labels.columns:
+            st.error("Both CSVs must contain a 'building_id' column.")
             df = None
+        else:
+            df = df_features.merge(df_labels, on="building_id")
+
+            # Create severe_damage like the wrangle() in the notebook
+            # If damage_grade exists and is 1–3, map 3 -> 1, 1–2 -> 0
+            if "damage_grade" in df.columns:
+                # In Kaggle version, damage_grade is 1,2,3 (3 = most severe)
+                df["severe_damage"] = (df["damage_grade"] == 3).astype(int)
+            elif "severe_damage" not in df.columns:
+                st.error(
+                    "Label file must contain damage_grade or severe_damage column. "
+                    "Check that you uploaded the correct train_labels.csv."
+                )
+                df = None
     else:
         st.sidebar.warning("Upload both CSV files to proceed")
         df = None
 
 elif data_source == "Use sample data":
-    # Create sample data matching your head
     sample_data = {
         "building_id": [87473, 87479, 87482, 87491, 87496],
         "age_building": [15, 12, 23, 12, 32],
@@ -99,7 +99,7 @@ elif data_source == "Use sample data":
     }
     df = pd.DataFrame(sample_data)
 
-else:  # SQLite option
+else:  # SQLite
     try:
         conn = sqlite3.connect("nepal.sqlite")
         query = """
@@ -112,7 +112,7 @@ else:  # SQLite option
         FROM id_map AS i 
         JOIN building_structure AS s ON i.building_id = s.building_id 
         JOIN building_damage AS d ON i.building_id = d.building_id
-        WHERE i.district_id = 28  -- Kavrepalanchok
+        WHERE i.district_id = 28
         """
         df = pd.read_sql(query, conn, index_col="bid")
         conn.close()
@@ -121,9 +121,9 @@ else:  # SQLite option
         st.error("❌ SQLite file not found. Use CSV or sample data.")
         df = None
 
-# --------------------------
+# -------------------------------------------------------------------
 # 2. IF DATA LOADED, SHOW TABS
-# --------------------------
+# -------------------------------------------------------------------
 if df is not None and not df.empty:
     st.success(f"✅ Data loaded: {df.shape[0]:,} rows × {df.shape[1]} columns")
 
@@ -131,7 +131,7 @@ if df is not None and not df.empty:
         ["📈 Explore Data", "🔄 Preprocess", "🤖 Train Models", "📊 Results"]
     )
 
-    # ---------- TAB 1: EXPLORE ----------
+    # ========== TAB 1: EXPLORE ==========
     with tab1:
         col1, col2 = st.columns(2)
 
@@ -171,7 +171,7 @@ if df is not None and not df.empty:
             else:
                 st.info("Key numeric features not found in dataframe.")
 
-    # ---------- TAB 2: PREPROCESS ----------
+    # ========== TAB 2: PREPROCESS ==========
     with tab2:
         st.subheader("Preprocessing Pipeline")
 
@@ -195,6 +195,7 @@ if df is not None and not df.empty:
         ]
 
         existing_features = [c for c in feature_cols if c in df_filtered.columns]
+
         if "severe_damage" not in df_filtered.columns:
             st.error(
                 "Column 'severe_damage' is missing after loading. "
@@ -214,7 +215,7 @@ if df is not None and not df.empty:
             st.success(f"✅ Preprocessed: {X.shape[0]} samples, {X.shape[1]} features")
             st.dataframe(X.head(), use_container_width=True)
 
-    # ---------- TAB 3: TRAIN MODELS ----------
+    # ========== TAB 3: TRAIN MODELS ==========
     with tab3:
         if "X" in locals() and "y" in locals():
             st.subheader("Model Training")
@@ -244,58 +245,67 @@ if df is not None and not df.empty:
         else:
             st.warning("Go to the 'Preprocess' tab first to prepare X and y.")
 
-    # ---------- TAB 4: RESULTS ----------
+    # ========== TAB 4: RESULTS ==========
     with tab4:
-        if "model" in locals() and "X_test" in locals():
-            st.subheader("Model Performance")
+        # Only show results if model has been trained in this run
+        if "model" in locals() and "X_test" in locals() and "y_test" in locals():
+            try:
+                st.subheader("Model Performance")
 
-            y_pred = model.predict(X_test)
-            y_pred_proba = (
-                model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else None
-            )
-
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Test Accuracy", f"{accuracy_score(y_test, y_pred):.3f}")
-
-            report = classification_report(
-                y_test, y_pred, output_dict=True, zero_division=0
-            )
-            with col2:
-                st.metric("Precision", f"{report['1']['precision']:.3f}")
-            with col3:
-                st.metric("Recall", f"{report['1']['recall']:.3f}")
-            with col4:
-                st.metric("F1-Score", f"{report['1']['f1-score']:.3f}")
-
-            st.subheader("Confusion Matrix")
-            cm = confusion_matrix(y_test, y_pred)
-            fig_cm = px.imshow(
-                cm,
-                text_auto=True,
-                aspect="auto",
-                labels=dict(x="Predicted", y="Actual", color="Count"),
-                color_continuous_scale="Blues",
-            )
-            st.plotly_chart(fig_cm, use_container_width=True)
-
-            if hasattr(model, "feature_importances_"):
-                st.subheader("Feature Importance")
-                importances = pd.DataFrame(
-                    {"feature": existing_features, "importance": model.feature_importances_}
-                ).sort_values("importance", ascending=True)
-
-                fig_imp = px.bar(
-                    importances,
-                    x="importance",
-                    y="feature",
-                    orientation="h",
-                    title="Decision Tree Feature Importance",
+                y_pred = model.predict(X_test)
+                y_pred_proba = (
+                    model.predict_proba(X_test)[:, 1]
+                    if hasattr(model, "predict_proba")
+                    else None
                 )
-                st.plotly_chart(fig_imp, use_container_width=True)
 
-            st.subheader("Detailed Classification Report")
-            st.text(classification_report(y_test, y_pred, zero_division=0))
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Test Accuracy", f"{accuracy_score(y_test, y_pred):.3f}")
+
+                report = classification_report(
+                    y_test, y_pred, output_dict=True, zero_division=0
+                )
+                with col2:
+                    st.metric("Precision", f"{report['1']['precision']:.3f}")
+                with col3:
+                    st.metric("Recall", f"{report['1']['recall']:.3f}")
+                with col4:
+                    st.metric("F1-Score", f"{report['1']['f1-score']:.3f}")
+
+                st.subheader("Confusion Matrix")
+                cm = confusion_matrix(y_test, y_pred)
+                fig_cm = px.imshow(
+                    cm,
+                    text_auto=True,
+                    aspect="auto",
+                    labels=dict(x="Predicted", y="Actual", color="Count"),
+                    color_continuous_scale="Blues",
+                )
+                st.plotly_chart(fig_cm, use_container_width=True)
+
+                if hasattr(model, "feature_importances_"):
+                    st.subheader("Feature Importance")
+                    importances = pd.DataFrame(
+                        {"feature": existing_features, "importance": model.feature_importances_}
+                    ).sort_values("importance", ascending=True)
+
+                    fig_imp = px.bar(
+                        importances,
+                        x="importance",
+                        y="feature",
+                        orientation="h",
+                        title="Decision Tree Feature Importance",
+                    )
+                    st.plotly_chart(fig_imp, use_container_width=True)
+
+                st.subheader("Detailed Classification Report")
+                st.text(classification_report(y_test, y_pred, zero_division=0))
+            except Exception:
+                st.error(
+                    "Model not trained yet in this session. "
+                    "Go to 'Train Models' and click '🚀 Train Model'."
+                )
         else:
             st.info("👆 Train a model first in the 'Train Models' tab.")
 
