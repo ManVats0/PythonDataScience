@@ -25,7 +25,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.title("🏠 Earthquake Damage Classification - WQU Project 4")
+st.title("🏠 Earthquake Damage Classification App")
 st.markdown(
     "**Predict building damage in Kavrepalanchok district using Logistic Regression & Decision Trees**"
 )
@@ -325,3 +325,4 @@ else:
     - Full evaluation metrics
     """
     )
+
