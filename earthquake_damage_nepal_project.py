@@ -325,8 +325,3 @@ else:
     - Full evaluation metrics
     """
     )
-
-st.markdown("---")
-st.markdown(
-    "*WorldQuant University Applied Data Science Lab - Project 4 (Streamlit App)*"
-)
