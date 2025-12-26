@@ -12,6 +12,7 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 from sklearn.pipeline import make_pipeline
 import seaborn as sns
 import matplotlib.pyplot as plt
+from google.cloud import bigquery   # BigQuery client [web:79]
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -100,11 +101,11 @@ elif data_source == "Use sample data":
     }
     df = pd.DataFrame(sample_data)
 
-else:  # Load from BigQuery
+else:  # Load from BigQuery with google-cloud-bigquery
     st.sidebar.info("Reading data from BigQuery table filtered to district_id = 12")
 
-    project_id = "aman-trial-432613"   # your GCP project
-    dataset_table = "123.nepal"        # dataset.table from screenshot
+    project_id = "aman-trial-432613"
+    dataset_table = "123.nepal"
 
     sql = f"""
     SELECT
@@ -127,8 +128,10 @@ else:  # Load from BigQuery
     """
 
     try:
-        # requires pandas-gbq to be in requirements.txt, but no direct import needed [web:14][web:25]
-        df = pd.read_gbq(sql, project_id=project_id, dialect="standard")
+        client = bigquery.Client(project=project_id)
+        query_job = client.query(sql)
+        # convert query results directly to DataFrame
+        df = query_job.to_dataframe(create_bqstorage_client=False)  # avoid BQ Storage API issues [web:85]
 
         if "damage_grade" in df.columns:
             df["severe_damage"] = (df["damage_grade"] == 3).astype(int)
