@@ -102,7 +102,7 @@ elif data_source == "Use sample data":
     df = pd.DataFrame(sample_data)
 
 else:  # Load from BigQuery with google-cloud-bigquery
-    st.sidebar.info("Reading data from BigQuery table filtered to district_id = 12")
+    st.sidebar.info("Reading data from BigQuery table filtered to district_id = 20")
 
     project_id = "aman-trial-432613"
     dataset_table = "123.nepal"
@@ -345,3 +345,4 @@ else:
     - Full evaluation metrics
     """
     )
+
