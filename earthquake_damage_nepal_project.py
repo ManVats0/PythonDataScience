@@ -14,9 +14,6 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import warnings
 
-# BigQuery imports
-import pandas_gbq  # uses pandas-gbq connector under the hood [web:11][web:26]
-
 warnings.filterwarnings("ignore")
 
 # -------------------------------------------------------------------
@@ -107,11 +104,9 @@ elif data_source == "Use sample data":
 else:  # Load from BigQuery
     st.sidebar.info("Reading data from BigQuery table filtered to district_id = 12")
 
-    # TODO: set these to your real project and dataset.table from BigQuery UI
-    project_id = "acquired-voice-463911"   # GCP project
-    dataset_table = "dspor2.nepaleq"       # dataset.table name
+    project_id = "aman-trial-432613"     # your project
+    dataset_table = "123.nepal"          # dataset.table from screenshot
 
-    # Standard SQL query to replicate the SQLite SELECT
     sql = f"""
     SELECT
       building_id AS bid,
@@ -133,14 +128,13 @@ else:  # Load from BigQuery
     """
 
     try:
-        df = pandas_gbq.read_gbq(sql, project_id=project_id)  # [web:11][web:17]
+        # pandas.read_gbq is part of pandas when pandas-gbq is installed; no extra import needed [web:14][web:51]
+        df = pd.read_gbq(sql, project_id=project_id, dialect="standard")
 
-        # Create severe_damage from ordinal damage_grade (assuming 1–3 with 3 severe)
         if "damage_grade" in df.columns:
             df["severe_damage"] = (df["damage_grade"] == 3).astype(int)
 
         df.set_index("bid", inplace=True)
-
         st.success("✅ BigQuery data loaded successfully!")
     except Exception as e:
         st.error(f"❌ BigQuery load failed: {e}")
