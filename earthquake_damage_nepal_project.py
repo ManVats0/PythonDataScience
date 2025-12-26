@@ -63,8 +63,7 @@ if data_source == "Load from Kaggle CSV (Recommended)":
         else:
             df = df_features.merge(df_labels, on="building_id")
 
-            # Create severe_damage like the wrangle() in the notebook
-            # Kaggle version: damage_grade in {1,2,3} (3 = most severe)
+            # Kaggle: damage_grade in {1,2,3} (3 = most severe)
             if "damage_grade" in df.columns:
                 df["severe_damage"] = (df["damage_grade"] == 3).astype(int)
             elif "severe_damage" not in df.columns:
@@ -104,8 +103,8 @@ elif data_source == "Use sample data":
 else:  # Load from BigQuery
     st.sidebar.info("Reading data from BigQuery table filtered to district_id = 12")
 
-    project_id = "aman-trial-432613"     # your project
-    dataset_table = "123.nepal"          # dataset.table from screenshot
+    project_id = "aman-trial-432613"   # your GCP project
+    dataset_table = "123.nepal"        # dataset.table from screenshot
 
     sql = f"""
     SELECT
@@ -128,7 +127,7 @@ else:  # Load from BigQuery
     """
 
     try:
-        # pandas.read_gbq is part of pandas when pandas-gbq is installed; no extra import needed [web:14][web:51]
+        # requires pandas-gbq to be in requirements.txt, but no direct import needed [web:14][web:25]
         df = pd.read_gbq(sql, project_id=project_id, dialect="standard")
 
         if "damage_grade" in df.columns:
