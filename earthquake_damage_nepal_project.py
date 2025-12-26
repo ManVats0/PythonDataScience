@@ -4,7 +4,6 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import sqlite3
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
@@ -15,9 +14,14 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import warnings
 
+# BigQuery imports
+import pandas_gbq  # uses pandas-gbq connector under the hood [web:11][web:26]
+
 warnings.filterwarnings("ignore")
 
-# Page config
+# -------------------------------------------------------------------
+# PAGE CONFIG
+# -------------------------------------------------------------------
 st.set_page_config(
     page_title="Earthquake Damage Classifier",
     page_icon="🏠",
@@ -30,11 +34,13 @@ st.markdown(
     "**Predict building damage in Kavrepalanchok district using Logistic Regression & Decision Trees**"
 )
 
-# Sidebar for data loading options
+# -------------------------------------------------------------------
+# SIDEBAR: DATA SOURCE
+# -------------------------------------------------------------------
 st.sidebar.header("📊 Data Loading")
 data_source = st.sidebar.radio(
     "Choose data source:",
-    ["Load from Kaggle CSV (Recommended)", "Load from SQLite (if available)", "Use sample data"],
+    ["Load from Kaggle CSV (Recommended)", "Load from BigQuery", "Use sample data"],
 )
 
 # -------------------------------------------------------------------
@@ -61,9 +67,8 @@ if data_source == "Load from Kaggle CSV (Recommended)":
             df = df_features.merge(df_labels, on="building_id")
 
             # Create severe_damage like the wrangle() in the notebook
-            # If damage_grade exists and is 1–3, map 3 -> 1, 1–2 -> 0
+            # Kaggle version: damage_grade in {1,2,3} (3 = most severe)
             if "damage_grade" in df.columns:
-                # In Kaggle version, damage_grade is 1,2,3 (3 = most severe)
                 df["severe_damage"] = (df["damage_grade"] == 3).astype(int)
             elif "severe_damage" not in df.columns:
                 st.error(
@@ -99,26 +104,46 @@ elif data_source == "Use sample data":
     }
     df = pd.DataFrame(sample_data)
 
-else:  # SQLite
+else:  # Load from BigQuery
+    st.sidebar.info("Reading data from BigQuery table filtered to district_id = 12")
+
+    # TODO: set these to your real project and dataset.table from BigQuery UI
+    project_id = "acquired-voice-463911"   # GCP project
+    dataset_table = "dspor2.nepaleq"       # dataset.table name
+
+    # Standard SQL query to replicate the SQLite SELECT
+    sql = f"""
+    SELECT
+      building_id AS bid,
+      age_building,
+      plinth_area_sq_ft,
+      height_ft_pre_eq,
+      land_surface_condition,
+      foundation_type,
+      roof_type,
+      ground_floor_type,
+      other_floor_type,
+      position,
+      plan_configuration,
+      superstructure,
+      damage_grade,
+      district_id
+    FROM `{project_id}.{dataset_table}`
+    WHERE district_id = 12
+    """
+
     try:
-        conn = sqlite3.connect("nepal.sqlite")
-        query = """
-        SELECT DISTINCT i.building_id AS bid, 
-               s.age_building, s.plinth_area_sq_ft, s.height_ft_pre_eq,
-               s.land_surface_condition, s.foundation_type, s.roof_type,
-               s.ground_floor_type, s.other_floor_type, s.position,
-               s.plan_configuration, s.superstructure,
-               CASE WHEN d.damage_grade IN ('Grade 4', 'Grade 5') THEN 1 ELSE 0 END as severe_damage
-        FROM id_map AS i 
-        JOIN building_structure AS s ON i.building_id = s.building_id 
-        JOIN building_damage AS d ON i.building_id = d.building_id
-        WHERE i.district_id = 28
-        """
-        df = pd.read_sql(query, conn, index_col="bid")
-        conn.close()
-        st.success("✅ SQLite data loaded successfully!")
-    except Exception:
-        st.error("❌ SQLite file not found. Use CSV or sample data.")
+        df = pandas_gbq.read_gbq(sql, project_id=project_id)  # [web:11][web:17]
+
+        # Create severe_damage from ordinal damage_grade (assuming 1–3 with 3 severe)
+        if "damage_grade" in df.columns:
+            df["severe_damage"] = (df["damage_grade"] == 3).astype(int)
+
+        df.set_index("bid", inplace=True)
+
+        st.success("✅ BigQuery data loaded successfully!")
+    except Exception as e:
+        st.error(f"❌ BigQuery load failed: {e}")
         df = None
 
 # -------------------------------------------------------------------
@@ -176,7 +201,7 @@ if df is not None and not df.empty:
         st.subheader("Preprocessing Pipeline")
 
         if "district_id" in df.columns:
-            df_filtered = df[df["district_id"] == 28]
+            df_filtered = df[df["district_id"] == 12]
         else:
             df_filtered = df.copy()
 
@@ -247,7 +272,6 @@ if df is not None and not df.empty:
 
     # ========== TAB 4: RESULTS ==========
     with tab4:
-        # Only show results if model has been trained in this run
         if "model" in locals() and "X_test" in locals() and "y_test" in locals():
             try:
                 st.subheader("Model Performance")
@@ -310,19 +334,18 @@ if df is not None and not df.empty:
             st.info("👆 Train a model first in the 'Train Models' tab.")
 
 else:
-    st.warning("⚠️ Please upload data files or use sample data to proceed")
+    st.warning("⚠️ Please upload data files or use BigQuery/sample data to proceed")
     st.markdown(
         """
     ## Quick Start Guide:
     1. **Download data** from [Kaggle](https://www.kaggle.com/datasets/mullerismail/richters-predictor-modeling-earthquake-damage)
-    2. Upload `train_values.csv` and `train_labels.csv`
+    2. Upload `train_values.csv` and `train_labels.csv` or choose **Load from BigQuery**
     3. Explore → Preprocess → Train → Analyze!
 
     This app replicates **WQU ADSL Project 4**:
-    - Kavrepalanchok district (district_id=28)
+    - Kavrepalanchok district (district_id=12 in BigQuery)
     - Same features as notebook 4.5
     - Logistic Regression + Decision Tree
     - Full evaluation metrics
     """
     )
-
