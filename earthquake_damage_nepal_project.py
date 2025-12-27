@@ -12,7 +12,8 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 from sklearn.pipeline import make_pipeline
 import seaborn as sns
 import matplotlib.pyplot as plt
-from google.cloud import bigquery   # BigQuery client [web:79]
+from google.cloud import bigquery
+from google.oauth2 import service_account  # for service-account auth [web:120]
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -101,8 +102,8 @@ elif data_source == "Use sample data":
     }
     df = pd.DataFrame(sample_data)
 
-else:  # Load from BigQuery with google-cloud-bigquery
-    st.sidebar.info("Reading data from BigQuery table filtered to district_id = 20")
+else:  # Load from BigQuery with service-account credentials
+    st.sidebar.info("Reading data from BigQuery table filtered to district_id = 12")
 
     project_id = "aman-trial-432613"
     dataset_table = "123.nepal"
@@ -128,10 +129,20 @@ else:  # Load from BigQuery with google-cloud-bigquery
     """
 
     try:
-        client = bigquery.Client(project=project_id)
+        # Build credentials from Streamlit secrets
+        service_account_info = st.secrets["gcp_service_account"]
+        credentials = service_account.Credentials.from_service_account_info(
+            service_account_info,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+
+        client = bigquery.Client(
+            project=project_id,
+            credentials=credentials,
+        )
+
         query_job = client.query(sql)
-        # convert query results directly to DataFrame
-        df = query_job.to_dataframe(create_bqstorage_client=False)  # avoid BQ Storage API issues [web:85]
+        df = query_job.to_dataframe(create_bqstorage_client=False)  # [web:79]
 
         if "damage_grade" in df.columns:
             df["severe_damage"] = (df["damage_grade"] == 3).astype(int)
@@ -345,4 +356,3 @@ else:
     - Full evaluation metrics
     """
     )
-
