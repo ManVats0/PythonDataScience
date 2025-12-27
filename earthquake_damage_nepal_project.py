@@ -141,8 +141,13 @@ else:  # Load from BigQuery with service-account credentials
             credentials=credentials,
         )
 
-        query_job = client.query(sql)
-        df = query_job.to_dataframe(create_bqstorage_client=False)  # [web:79]
+        job_config = bigquery.QueryJobConfig(use_legacy_sql=False)
+        # Explicitly disable Drive / external data sources
+        job_config.connection_properties = []
+
+        query_job = client.query(sql, job_config=job_config)
+        df = query_job.to_dataframe(create_bqstorage_client=False)
+
 
         if "damage_grade" in df.columns:
             df["severe_damage"] = (df["damage_grade"] == 3).astype(int)
@@ -356,4 +361,5 @@ else:
     - Full evaluation metrics
     """
     )
+
 
