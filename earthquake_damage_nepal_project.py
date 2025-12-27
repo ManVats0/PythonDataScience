@@ -121,7 +121,7 @@ else:  # Load from BigQuery with service-account credentials
       other_floor_type,
       position,
       plan_configuration,
-      superstructure,
+      --superstructure,
       damage_grade,
       district_id
     FROM `{project_id}.{dataset_table}`
@@ -356,3 +356,4 @@ else:
     - Full evaluation metrics
     """
     )
+
