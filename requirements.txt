@@ -8,9 +8,10 @@ seaborn==0.13.2
 scikit-learn==1.5.2
 category-encoders
 
-# BigQuery support
-pandas-gbq
+# BigQuery support (no pandas-gbq needed now)
 google-cloud-bigquery
+google-auth
+google-auth-oauthlib
 
 # Notebooks / widgets
 jupyter
