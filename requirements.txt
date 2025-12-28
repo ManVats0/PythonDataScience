@@ -17,10 +17,7 @@ google-auth-oauthlib
 jupyter
 ipywidgets
 
-# Extra models / dashboards
-xgboost==2.1.1
-dash==2.17.1
-
 # GARCH Volatility (NEW - for MTN app)
 requests==2.32.3
 arch==7.1.0
+
