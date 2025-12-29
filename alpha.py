@@ -148,6 +148,3 @@ with tab3:
     st.subheader("Model Summary")
     st.text(model.summary().as_text())
 
-# Footer
-st.markdown("---")
-st.markdown("*Built from WQU Applied Data Science Lab assignment 8.5*")
